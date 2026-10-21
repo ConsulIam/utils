@@ -69,11 +69,19 @@
       // Caracteres: katakana de media anchura + números + algunos símbolos
       const CHARS = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789:.=*+-<>¦｜';
 
-      // Paleta azul
-      const HEAD_COLOR  = '#e6f6ff'; // punta brillante
-      const TRAIL_COLOR = '#1e90ff'; // cuerpo de la columna
-      const GLOW_COLOR  = '#3aa8ff';
-      const FADE        = 'rgba(0, 4, 12, 0.08)'; // estela
+      // Paletas: doble toque / doble clic alterna entre ellas
+      const THEMES = [
+        { name: 'Azul',  head: '#e6f6ff', trail: '#1e90ff', glow: '#3aa8ff', fade: 'rgba(0, 4, 12, 0.08)' },
+        { name: 'Verde', head: '#e8ffe8', trail: '#00e040', glow: '#3cff6e', fade: 'rgba(0, 10, 2, 0.08)' },
+        { name: 'Rojo',  head: '#ffeaea', trail: '#ff2a3c', glow: '#ff5a66', fade: 'rgba(12, 0, 2, 0.08)' }
+      ];
+
+      let themeIndex = 0;
+      try {
+        const saved = parseInt(localStorage.getItem('matrixTheme'), 10);
+        if (saved >= 0 && saved < THEMES.length) themeIndex = saved;
+      } catch (_) { /* almacenamiento no disponible */ }
+      let theme = THEMES[themeIndex];
 
       const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -120,7 +128,7 @@
         if (time - lastTime < interval) return;
         lastTime = time;
 
-        ctx.fillStyle = FADE;
+        ctx.fillStyle = theme.fade;
         ctx.fillRect(0, 0, width, height);
 
         for (let i = 0; i < columns; i++) {
@@ -130,12 +138,12 @@
           if (y >= 0) {
             // Repinta el carácter anterior en azul para que la punta quede blanca
             ctx.shadowBlur = 0;
-            ctx.fillStyle = TRAIL_COLOR;
+            ctx.fillStyle = theme.trail;
             ctx.fillText(randomChar(), x, y - fontSize);
 
-            ctx.shadowColor = GLOW_COLOR;
+            ctx.shadowColor = theme.glow;
             ctx.shadowBlur = 8;
-            ctx.fillStyle = HEAD_COLOR;
+            ctx.fillStyle = theme.head;
             ctx.fillText(randomChar(), x, y);
           }
 
@@ -165,28 +173,58 @@
         }
       }
 
-      // Desktop: doble clic. Móvil: un toque.
-      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-      if (isTouch) {
-        canvas.addEventListener('click', toggleFullscreen);
-      } else {
-        canvas.addEventListener('dblclick', toggleFullscreen);
+      // ---------- Mensajes temporales ----------
+      let hintTimer;
+      function showHint(text, ms) {
+        hint.textContent = text;
+        hint.style.color = theme.trail;
+        hint.style.borderColor = theme.trail;
+        hint.style.textShadow = `0 0 6px ${theme.glow}`;
+        hint.classList.remove('hidden');
+        clearTimeout(hintTimer);
+        hintTimer = setTimeout(() => hint.classList.add('hidden'), ms);
       }
+
+      // ---------- Cambio de color ----------
+      function nextTheme() {
+        themeIndex = (themeIndex + 1) % THEMES.length;
+        theme = THEMES[themeIndex];
+        try { localStorage.setItem('matrixTheme', themeIndex); } catch (_) {}
+        showHint(theme.name, 1200);
+      }
+
+      // Un toque/clic: entra en pantalla completa (si no lo está).
+      // Doble toque (móvil) o doble clic (desktop): cambia de color.
+      const DOUBLE_TAP_MS = 300;
+      let lastTap = 0;
+      canvas.addEventListener('click', () => {
+        const now = Date.now();
+        if (now - lastTap < DOUBLE_TAP_MS) {
+          lastTap = 0;
+          nextTheme();
+          return;
+        }
+        lastTap = now;
+        if (!isFullscreen()) toggleFullscreen();
+      });
+
       document.addEventListener('keydown', (e) => {
         if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+        if (e.key === 'c' || e.key === 'C') nextTheme();
       });
 
       // iPhone no soporta Fullscreen API: sugerir "Agregar a inicio"
+      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       const standalone = window.navigator.standalone === true ||
                          window.matchMedia('(display-mode: standalone)').matches;
       if (isIOS && !standalone) {
-        hint.textContent = 'Compartir → "Agregar a inicio" para pantalla completa';
-      } else if (!isTouch) {
-        hint.textContent = 'Doble clic o tecla F para pantalla completa';
+        showHint('Doble toque: color · Compartir → "Agregar a inicio"', 5000);
+      } else if (isTouch) {
+        showHint('Toque: pantalla completa · Doble toque: color', 5000);
+      } else {
+        showHint('Clic o F: pantalla completa · Doble clic o C: color', 5000);
       }
-      if (standalone) hint.classList.add('hidden');
-      setTimeout(() => hint.classList.add('hidden'), 5000);
 
       // ---------- Mantener la pantalla encendida ----------
       let wakeLock = null;
